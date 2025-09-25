@@ -15,7 +15,7 @@ import gzip
 from Crypto.Cipher import AES
 
 DESCRIPTION = '''
-Decrypts and decompresses Home Assistant backups, so you can deduplicate, compress and encrypt them 
+Decrypts and decompresses Home Assistant backups, so you can deduplicate, compress and encrypt them
 using your favourite backup solution. Don't reinvent the wheel.
 '''
 EPILOG='''
@@ -59,8 +59,8 @@ def parse_args():
 # - IV seed is stored in the first 16 bytes or after a 32-byte header.
 # - PKCS7 padding is used at the end.
 #
-# As of January 2025, Secure Tar also errorneously applies the padding before the last block. This 
-# breaks the CRC location in GZIP files. Luckily, we can correctly read the uncompressed size and 
+# As of January 2025, Secure Tar also errorneously applies the padding before the last block. This
+# breaks the CRC location in GZIP files. Luckily, we can correctly read the uncompressed size and
 # Tarfile won't cross the EOF and won't trigger the CRC check. But it's a dumpster fire.
 class AesFile:
   SECURETAR_MAGIC = b'SecureTar\x02\x00\x00\x00\x00\x00\x00'
@@ -140,8 +140,11 @@ class TarConverter:
     for info in self._input_tar.getmembers():
       if os.path.normpath(info.name) == path:
         found = info
+        break
+
     if found is None:
       return None
+
     return self._input_tar.extractfile(info)
 
   def convert(self, output_file):
@@ -164,10 +167,19 @@ class OuterTarConverter(TarConverter):
 
   def __enter__(self):
     super().__enter__()
+    print("Reading backup.json manifest from input archive...")
     self._manifest = json.load(self.extract('backup.json'))
+    _man_info = ["    {}: {}".format(k, v) for k, v in self._manifest.items()]
+    print("Found manifest info: \n%s" % "\n".join(_man_info))
     assert self._manifest['version'] == 2, 'Only manifest version 2 is supported.'
+
     if self._manifest['protected']:
-      assert self._manifest['crypto'] == 'aes128', 'Only AES-128 encryption is supported.'
+      # Backup manifests from Home Assistant versions >= 2025.7.1 do NOT contain
+      # contain a "cypto" version field, so this assert always fails even
+      # though the archive is encypted with the appropriate scheme...
+      # assert self._manifest['crypto'] == 'aes128', 'Only AES-128 encryption is supported.'
+      pass
+
     return self
 
   def convert_member(self, info, file):
@@ -208,7 +220,6 @@ def main(args):
     os.remove(args.input.name)
   if args.replace:
     shutil.move(args.output.name, args.input.name)
-
 
 if __name__ == '__main__':
   main(parse_args())
